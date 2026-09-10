@@ -1,0 +1,33 @@
+# Pipeline runtime, pinned exactly.
+#
+# The FastAPI/Starlette/cadwyn/pydantic pins are Airflow 3.0.4's own constraint
+# set. Left to float, pip installs a newer FastAPI stack than Airflow 3.0.4
+# supports and its task-execution API answers every task start with a 422 --
+# a miserable failure to debug, so they stay pinned.
+
+# --- orchestration ---
+apache-airflow==3.0.4
+fastapi==0.116.1
+starlette==0.47.2
+cadwyn==5.4.4
+pydantic==2.11.7
+uvicorn==0.35.0
+
+# --- warehouse + transform ---
+duckdb==1.4.1
+dbt-core==1.10.13
+dbt-duckdb==1.9.5
+
+# --- extract ---
+# Plain requests against the Open-Meteo JSON endpoint; see pipelines/extract.py
+# for why we do not use the openmeteo-requests flatbuffer SDK.
+requests==2.34.2
+
+# --- analysis / walkthrough ---
+pandas==3.0.5
+matplotlib==3.11.1
+jupyterlab==4.6.3
+nbclient==0.11.0
+nbformat==5.11.1
+ipykernel==7.3.0
+tabulate==0.10.0
