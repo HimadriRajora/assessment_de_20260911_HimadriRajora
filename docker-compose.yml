@@ -1,0 +1,62 @@
+# Two services, one image, one shared DuckDB warehouse on a bind mount:
+#   airflow  -> http://localhost:8080  (scheduler + API server via `standalone`)
+#   jupyter  -> http://localhost:8888  (the walkthrough notebook)
+#
+# The warehouse is a file, not a service, so there is no database container to
+# wait for and nothing to keep in sync between the two.
+
+x-common: &common
+  build: .
+  image: weather-pipeline:local
+  env_file:
+    - .env
+  environment:
+    PROJECT_DIR: /opt/project
+    PYTHONPATH: /opt/project
+    WAREHOUSE_PATH: /opt/project/data/warehouse/weather.duckdb
+    LANDING_DIR: /opt/project/data/landing
+    DBT_PROJECT_DIR: /opt/project/dbt/weather
+  volumes:
+    # Bind-mounted so the notebook you run in the container is the notebook
+    # that gets committed, and the warehouse survives `docker compose down`.
+    - .:/opt/project
+  working_dir: /opt/project
+
+services:
+  airflow:
+    <<: *common
+    container_name: weather_airflow
+    environment:
+      PROJECT_DIR: /opt/project
+      PYTHONPATH: /opt/project
+      WAREHOUSE_PATH: /opt/project/data/warehouse/weather.duckdb
+      LANDING_DIR: /opt/project/data/landing
+      DBT_PROJECT_DIR: /opt/project/dbt/weather
+      AIRFLOW_HOME: /opt/project/airflow_home
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/project/dags
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+    command: >
+      bash -lc "airflow db migrate && airflow standalone"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/api/v2/version"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  jupyter:
+    <<: *common
+    container_name: weather_jupyter
+    command: >
+      bash -lc "jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+      --ServerApp.token='' --ServerApp.password='' --ServerApp.root_dir=/opt/project"
+    ports:
+      - "8888:8888"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8888/api"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
