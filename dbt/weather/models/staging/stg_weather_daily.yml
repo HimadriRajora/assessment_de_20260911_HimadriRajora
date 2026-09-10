@@ -1,0 +1,61 @@
+version: 2
+
+models:
+  - name: stg_weather_daily
+    description: >
+      Typed, renamed view over the raw table. One row per city per day; the
+      only model that knows the JSON payload's field names.
+    columns:
+      - name: weather_key
+        description: Surrogate key for the grain, city_id|weather_date.
+        data_tests:
+          - not_null
+          - unique
+      - name: city_id
+        description: Stable city key.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [berlin, london, new_york, tokyo, sydney]
+      - name: city_name
+        description: Human-readable city name.
+        data_tests: [not_null]
+      - name: country_code
+        description: ISO-3166 alpha-2 country code.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [DE, GB, US, JP, AU]
+      - name: weather_date
+        description: Calendar day (UTC) the measurements describe.
+        data_tests: [not_null]
+      - name: temperature_max_c
+        description: Highest 2m air temperature that day, degrees Celsius.
+        data_tests: [not_null]
+      - name: temperature_min_c
+        description: Lowest 2m air temperature that day, degrees Celsius.
+        data_tests: [not_null]
+      - name: temperature_mean_c
+        description: Mean 2m air temperature that day, degrees Celsius.
+        data_tests: [not_null]
+      - name: temperature_range_c
+        description: temperature_max_c - temperature_min_c.
+      - name: precipitation_mm
+        description: Total precipitation (rain + snow water equivalent), mm.
+        data_tests: [not_null]
+      - name: wind_speed_max_kmh
+        description: Maximum 10m wind speed that day, km/h.
+      - name: latitude
+        description: Latitude of the grid cell the API actually served.
+      - name: longitude
+        description: Longitude of the grid cell the API actually served.
+      - name: elevation_m
+        description: Elevation of the grid cell, metres above sea level.
+      - name: _batch_id
+        description: Load partition key (the weather date the run covered).
+      - name: _extracted_at
+        description: When the API call happened (UTC).
+      - name: _loaded_at
+        description: When the row landed in the warehouse (UTC).

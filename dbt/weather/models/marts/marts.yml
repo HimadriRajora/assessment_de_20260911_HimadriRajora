@@ -1,0 +1,87 @@
+version: 2
+
+models:
+  - name: mart_city_weather_daily
+    description: >
+      Daily weather report per city, enriched with a 7-day rolling mean
+      temperature and the day-over-day change. Grain: one row per city per day.
+    columns:
+      - name: weather_key
+        description: Surrogate key for the grain, city_id|weather_date.
+        data_tests:
+          - not_null
+          - unique
+      - name: city_id
+        description: Stable city key.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_weather_daily')
+                field: city_id
+      - name: city_name
+        description: Human-readable city name.
+      - name: country_code
+        description: ISO-3166 alpha-2 country code.
+      - name: weather_date
+        description: Calendar day (UTC) the row describes.
+        data_tests: [not_null]
+      - name: temperature_max_c
+        description: Highest 2m air temperature that day, degrees Celsius.
+      - name: temperature_min_c
+        description: Lowest 2m air temperature that day, degrees Celsius.
+      - name: temperature_mean_c
+        description: Mean 2m air temperature that day, degrees Celsius.
+        data_tests: [not_null]
+      - name: temperature_range_c
+        description: Spread between the day's max and min temperature.
+      - name: precipitation_mm
+        description: Total precipitation that day, mm.
+      - name: wind_speed_max_kmh
+        description: Maximum 10m wind speed that day, km/h.
+      - name: temperature_mean_7d_avg_c
+        description: Mean temperature averaged over this day and the 6 before it.
+      - name: temperature_mean_change_c
+        description: Mean temperature minus the previous day's, for this city.
+      - name: is_rainy_day
+        description: True when any precipitation was recorded.
+        data_tests: [not_null]
+
+  - name: mart_city_weather_summary
+    description: >
+      One row per city covering every day loaded: average temperature, extremes,
+      total rainfall and how often it rained. The table a non-technical user
+      would read first.
+    columns:
+      - name: city_id
+        description: Stable city key.
+        data_tests:
+          - not_null
+          - unique
+      - name: city_name
+        description: Human-readable city name.
+        data_tests: [not_null]
+      - name: country_code
+        description: ISO-3166 alpha-2 country code.
+      - name: days_observed
+        description: Number of distinct days held for this city.
+        data_tests: [not_null]
+      - name: first_weather_date
+        description: Earliest day held for this city.
+      - name: last_weather_date
+        description: Latest day held for this city.
+      - name: avg_temperature_c
+        description: Mean of the daily mean temperatures, degrees Celsius.
+        data_tests: [not_null]
+      - name: warmest_day_c
+        description: Highest daily maximum temperature observed.
+      - name: coldest_night_c
+        description: Lowest daily minimum temperature observed.
+      - name: total_precipitation_mm
+        description: Sum of daily precipitation, mm.
+      - name: rainy_days
+        description: Count of days with any precipitation.
+      - name: rainy_day_pct
+        description: Rainy days as a percentage of days observed.
+      - name: windiest_day_kmh
+        description: Highest daily maximum wind speed observed.

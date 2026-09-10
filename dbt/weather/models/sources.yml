@@ -1,0 +1,44 @@
+version: 2
+
+sources:
+  - name: raw
+    description: >
+      Landing zone written by the Python loader. One row per city per weather
+      date, with the Open-Meteo response fields stored unmodified as JSON.
+    schema: raw
+    tables:
+      - name: weather_daily
+        description: >
+          Raw daily weather from the Open-Meteo archive API. The loader owns one
+          weather date per run and replaces that date's rows on every run, so
+          re-running a date is safe.
+        loaded_at_field: _loaded_at
+        freshness:
+          # The archive API lags ~5 days, so "fresh" here means the loader ran
+          # recently -- not that the weather is from today.
+          warn_after: {count: 36, period: hour}
+          error_after: {count: 72, period: hour}
+        columns:
+          - name: city_id
+            description: Stable key we assign to a city (the API only knows coordinates).
+            data_tests: [not_null]
+          - name: city_name
+            description: Human-readable city name.
+            data_tests: [not_null]
+          - name: country_code
+            description: ISO-3166 alpha-2 country code.
+            data_tests: [not_null]
+          - name: weather_date
+            description: The calendar day (UTC) the measurements describe.
+            data_tests: [not_null]
+          - name: payload
+            description: Open-Meteo daily fields for this day, verbatim JSON.
+            data_tests: [not_null]
+          - name: api_meta
+            description: Response-level API fields (units, elevation, timezone), verbatim JSON.
+          - name: _batch_id
+            description: Weather date the producing run covered; the load partition key.
+          - name: _extracted_at
+            description: When the API call happened (UTC).
+          - name: _loaded_at
+            description: When the row was written to the warehouse (UTC).

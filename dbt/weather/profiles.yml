@@ -1,0 +1,12 @@
+# Checked in on purpose: DuckDB needs no credentials, so the profile is just a
+# file path. WAREHOUSE_PATH is set by pipelines.dbt_runner (and by docker
+# compose), which guarantees dbt reads the same warehouse the loader wrote to.
+weather:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('WAREHOUSE_PATH') }}"
+      threads: 4
+      extensions:
+        - json

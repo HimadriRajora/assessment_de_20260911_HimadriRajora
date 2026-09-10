@@ -1,0 +1,24 @@
+name: weather
+version: "1.0.0"
+config-version: 2
+
+profile: weather
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  weather:
+    staging:
+      # Views: staging is a thin, cheap rename/cast layer over raw. Nothing to
+      # gain from materialising it, and it can never go stale.
+      +materialized: view
+      +schema: staging
+    marts:
+      # Tables: marts are what people query, so we pay the build cost once.
+      # The dataset is tiny (5 cities x ~30 days), so a full rebuild each run
+      # is cheaper and far simpler to reason about than an incremental model.
+      +materialized: table
+      +schema: marts
