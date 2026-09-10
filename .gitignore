@@ -23,3 +23,6 @@ airflow_home/
 
 # Local env
 .env
+
+# dbt writes this on first run
+dbt/weather/.user.yml
