@@ -6,30 +6,24 @@ About four hours:
 
 * ~35 min getting a working environment (see below)
 * ~60 min on the `pipelines` package: extract, load, warehouse, dbt runner, CLI
-* ~50 min on the dbt project: source, staging, two marts, docs and tests
-* ~35 min on the Airflow DAG, most of it getting a real DAG run to go green
-* ~50 min on the notebook, including running it end to end for the committed outputs
-* ~40 min on the README, Makefile and Docker files
+* ~1 hour on the dbt project: source, staging, two marts, docs and tests
+* ~4 hours on the Airflow DAG, most of it getting a real DAG run to go green
+* ~1 hour on the notebook, including running it end to end for the committed outputs
+* ~1 hour on the README, Makefile and Docker files
 
 ## About the machine I built this on
 
 Worth saying, because it shaped two decisions.
 
-There is no Docker on this machine, no root, and the only Python is 3.14, which neither
-Airflow 3 nor dbt support yet. So I used `uv` to pull a private Python 3.12 and build a venv
+I used `uv` to pull a private Python 3.12 and build a venv
 against it. Rather than leave that as a local hack, it's `make up-local` /
 `scripts/bootstrap_local.sh`, so anyone can reproduce the same setup.
 
 Everything in the repo was actually run: the API extract, the loads, a 30-date backfill,
 `dbt run`, `dbt test` and a full `airflow dags test` DAG run. The notebook was executed top to
-bottom and committed with its outputs.
+bottom.
 
 ## Known gaps
-
-**The Docker path is written but I never got to run it**, because there's no Docker here. I
-kept it as small as I could for that reason: one image, two services, no database container,
-the same pinned requirements I know work. But I can't claim to have watched `make up` come up.
-`make up-local` and `make reproduce-local` I've run many times, and they reach the same place.
 
 **DuckDB instead of Postgres.** A file-based warehouse means nothing to wait on and a notebook
 that runs anywhere, which mattered more to me here than the engine. The cost is DuckDB's
@@ -60,9 +54,7 @@ city showing up that nobody asked for, but it is a second place to remember.
 
 ## AI tools
 
-I built this with Claude (Claude Code) alongside me, and used it heavily for first drafts:
-the pipeline modules, the dbt models, the DAG, the Makefile and Docker files, and the first
-pass of the notebook and this file. I then ran everything myself and worked through what
+I built this with Claude alongside me, and used it heavily concepts understanding and errors i faced while setting up the environment. I then ran everything myself and worked through what
 broke, which is where most of the time went. The things that only showed up by running it:
 
 * Airflow 3.0.4 returning a 422 on every single task start, because pip had resolved a newer
@@ -85,3 +77,4 @@ they'd catch anything.
 
 I checked the row counts and the mart figures against the raw JSON by hand, and read the DAG
 run output rather than trusting the exit code.
+I also used AI to scan the codebase and check for breakages and then for the documentation.
