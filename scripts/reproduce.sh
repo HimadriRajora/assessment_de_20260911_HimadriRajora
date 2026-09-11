@@ -11,6 +11,9 @@ PYTHON="${PYTHON:-python}"
 
 cd "$(dirname "$0")/.."
 
+echo "==> Unit tests"
+"$PYTHON" -m pytest
+
 echo "==> Executing notebooks/walkthrough.ipynb (extract -> load -> dbt -> tests)"
 "$PYTHON" scripts/run_notebook.py
 

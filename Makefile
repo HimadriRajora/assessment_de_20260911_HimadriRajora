@@ -92,6 +92,10 @@ dag-test: ## Execute the whole DAG once for a logical date (DATE=YYYY-MM-DD)
 
 ## -------------------------------------------------------- checks & chores ---
 
+.PHONY: test
+test: ## Run the Python unit tests
+	$(PY) -m pytest
+
 .PHONY: dbt-run dbt-test dbt-docs
 dbt-run: ## Build the dbt models
 	$(PY) -m pipelines.cli dbt-run

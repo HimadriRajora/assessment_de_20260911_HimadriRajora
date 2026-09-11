@@ -3,3 +3,9 @@ name = "weather-pipeline"
 version = "1.0.0"
 description = "Daily Open-Meteo weather: extract -> load -> dbt, orchestrated by Airflow."
 requires-python = ">=3.11,<3.13"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]

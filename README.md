@@ -85,11 +85,12 @@ twice on top of that.
   7-day rolling mean and the day-over-day change; and `mart_city_weather_summary`, one row per
   city over the whole window — the table a non-technical colleague would read first.
 
-**29 schema tests** covering keys, nulls and allowed values: `unique` and `not_null` on the
-grain key `city_id|weather_date`, `not_null` on every measurement, `accepted_values` on
-`city_id` and `country_code`, and a `relationships` test from the mart back to staging. The
-`unique` test on the grain is the one that matters — it is what goes red if the load ever stops
-being idempotent.
+**34 tests.** Schema tests cover keys, nulls and allowed values: `unique` and `not_null` on the
+grain key `city_id|weather_date`, `not_null` on every measurement, `accepted_values` on `city_id`
+and `country_code`, and a `relationships` test from the mart back to staging. On top of those,
+five singular tests cover ranges and shape — `max >= min`, plausible temperatures (catching a
+sentinel value or a switch to Fahrenheit), non-negative precipitation, no duplicate
+(city, date) pairs in raw, and every city present for every day.
 
 `make dbt-docs` serves model and column documentation on :8081.
 
@@ -126,7 +127,8 @@ pass. Section 7 queries the mart. Section 8 runs the real DAG end to end with
 | `make reproduce` | the whole pipeline runs; the notebook re-executes top to bottom |
 | `make dag-test DATE=2026-09-08` | Airflow executes the real DAG for one logical date |
 | `make backfill BACKFILL_DAYS=30` | 30 logical dates load through the CLI |
-| `make dbt-run` / `make dbt-test` | 3 models build, 29 tests pass |
+| `make test` | Python unit tests: extract mapping, load idempotency, DAG wiring |
+| `make dbt-run` / `make dbt-test` | 3 models build, 34 tests pass |
 | `make dbt-docs` | model and column documentation on :8081 |
 
 Re-run safety in one line — run it twice, the counts don't move:
@@ -149,6 +151,7 @@ dags/                 weather_pipeline.py, the one DAG
 dbt/weather/          source, staging model, two marts, tests and docs
 notebooks/            walkthrough.ipynb
 scripts/              reproduce.sh, run_notebook.py, bootstrap_local.sh
+tests/                pytest unit tests
 data/                 landing/ for raw JSON, warehouse/ for the DuckDB file (both gitignored)
 ```
 

@@ -147,7 +147,9 @@ target schema.
 
 ## Testing strategy
 
-Tests are declared in `sources.yml`, `stg_weather_daily.yml` and `marts.yml` — 29 in total.
+Tests are declared in `sources.yml`, `stg_weather_daily.yml` and `marts.yml`, plus five singular
+tests in `dbt/weather/tests/` — 34 in total. There is also a small pytest suite under `tests/`
+covering the extract mapping, load idempotency and the DAG's wiring.
 
 | Test | The regression it catches |
 |---|---|
@@ -156,6 +158,10 @@ Tests are declared in `sources.yml`, `stg_weather_daily.yml` and `marts.yml` —
 | `not_null` on every measurement | a city whose extract came back empty while the run stayed green |
 | `accepted_values` on `city_id`, `country_code` | a city appearing that nobody configured |
 | `relationships` mart → staging | a mart row with no staging row behind it |
+| `assert_temperature_max_ge_min` | a column swap in staging |
+| `assert_temperatures_are_plausible` | a sentinel value (-9999) or a switch to Fahrenheit/Kelvin |
+| `assert_precipitation_is_non_negative` | physically impossible measurements |
+| `assert_every_city_has_every_day` | a city whose extract failed while the run stayed green |
 
 Source freshness thresholds are declared in `sources.yml` but are **not** part of `dbt test` —
 they need `dbt source freshness`, which nothing currently schedules. That is a known gap.
