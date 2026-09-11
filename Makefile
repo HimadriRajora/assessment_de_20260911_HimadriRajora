@@ -22,6 +22,21 @@ up: .env ## Build and start Airflow (:8080) and JupyterLab (:8888)
 	@echo "JupyterLab : http://localhost:8888  (no token)"
 	@echo "Next       : make reproduce"
 
+.PHONY: airflow-ui
+airflow-ui: ## Print the Airflow URL and where to find the generated password
+	@echo "Airflow : http://localhost:8080"
+	@echo "user    : admin"
+	@echo "password: $$(cat airflow_home/simple_auth_manager_passwords.json.generated 2>/dev/null || echo '<starts with the stack; see airflow_home/simple_auth_manager_passwords.json.generated>')"
+
+.PHONY: notebook
+notebook: ## Print the JupyterLab URL (no token)
+	@echo "JupyterLab: http://localhost:8888  (no token)"
+	@echo "Open notebooks/walkthrough.ipynb"
+
+.PHONY: dbt
+dbt: ## Run dbt inside the container
+	$(COMPOSE) run --rm jupyter python -m pipelines.cli dbt-run
+
 .PHONY: down
 down: ## Stop the stack (the warehouse file survives)
 	$(COMPOSE) down

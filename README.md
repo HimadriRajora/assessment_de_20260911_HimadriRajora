@@ -1,93 +1,149 @@
 # Daily weather pipeline
 
-Pulls daily weather for five cities (Berlin, London, New York, Tokyo, Sydney) from the free
-[Open-Meteo archive API](https://open-meteo.com/en/docs/historical-weather-api), loads it,
-models it with dbt and runs the whole thing on a schedule in Airflow.
+One small, end-to-end pipeline: daily weather for five cities from the free
+[Open-Meteo archive API](https://open-meteo.com/en/docs/historical-weather-api), loaded into a
+warehouse, modelled with dbt, orchestrated by Airflow, and explained in a notebook.
 
 ```
-Open-Meteo archive API
-        |  one call per city, for one logical date
-        v
-  data/landing/weather_<date>.json          pipelines/extract.py
-        |  delete-then-insert that date, in one transaction
-        v
-  raw.weather_daily      (API fields kept as-is, in JSON)   pipelines/load.py
-        |
-        v
-  staging.stg_weather_daily          view    typed + renamed
-        v
-  marts.mart_city_weather_daily      table   daily report per city
-  marts.mart_city_weather_summary    table   one row per city
+Open-Meteo API  ──extract──▶  raw.weather_daily (DuckDB)
+                              │
+                              └──dbt──▶ staging.stg_weather_daily ──▶ marts.mart_city_weather_daily
+                                                                 ──▶ marts.mart_city_weather_summary
+                                                                     (tests + docs)
+                 Airflow DAG:  extract → load → dbt run → dbt test   (daily, backfillable)
+                 Notebook:     runs every stage, shows the results, explains the choices
 ```
 
-Airflow runs it as `extract -> load -> dbt run -> dbt test`, daily, driven by the logical date
-(`dags/weather_pipeline.py`).
+Cities: Berlin, London, New York, Tokyo, Sydney. Window: the last 30 days.
 
-The walkthrough is in [`notebooks/walkthrough.ipynb`](notebooks/walkthrough.ipynb), committed
-with its outputs. It runs each stage by importing the same functions the DAG calls, shows the
-row counts and the dbt output at each step, loads the same date twice to show nothing
-duplicates, breaks a test on purpose to show it catches the problem, and finishes on the mart.
-
-## Running it
-
-With Docker:
+## Reproducibility
 
 ```bash
-cp .env.example .env      # make up does this for you if you forget
-make up                   # builds the image, starts Airflow + JupyterLab
-make reproduce            # runs the whole pipeline by executing the notebook
+cp .env.example .env
+make up          # airflow (standalone) + jupyter
+make reproduce   # executes notebooks/walkthrough.ipynb headlessly
 ```
 
-Airflow ends up on http://localhost:8080 (user `admin`, password in
-`airflow_home/simple_auth_manager_passwords.json.generated`) and JupyterLab on
-http://localhost:8888 with no token.
+`make reproduce` runs the whole pipeline — extract, load, a 30-day backfill, `dbt run`,
+`dbt test` — by executing the notebook, and fails loudly if any cell raises.
 
-The DAG arrives paused, which is Airflow's default. Unpause it to watch it catch up from its
-start date, or push it yourself:
+No Docker? The same thing runs in a local venv:
 
 ```bash
-make airflow-backfill     # backfill the last 30 logical dates through Airflow
-```
-
-If you would rather not use Docker, `make up-local` builds a `.venv` on Python 3.12 (it
-installs [uv](https://docs.astral.sh/uv/) first if you don't have it) and everything works the
-same way:
-
-```bash
-make up-local
+make up-local        # builds .venv on Python 3.12 (installs uv if needed)
 make reproduce-local
-make jupyter-local        # JupyterLab on :8888
-make airflow-local        # Airflow standalone on :8080
 ```
 
-## Checking it works
+## Getting started
 
-`make reproduce` is the short answer: it re-executes the notebook top to bottom, so if it
-finishes, the pipeline ran. Beyond that:
+```bash
+make up          # airflow (standalone), jupyter
+make airflow-ui  # http://localhost:8080  (admin / generated password)
+make notebook    # http://localhost:8888  (JupyterLab, no token)
+make dbt         # dbt run inside the container
+make reproduce   # execute the notebook headlessly (what reviewers run)
+make down
+```
 
-* `make dag-test DATE=2026-09-08` runs the real DAG for one logical date.
-* `make backfill BACKFILL_DAYS=30` loads 30 dates through the CLI.
-* `make dbt-run` and `make dbt-test` build the models and run the 29 tests.
-* `make dbt-docs` serves the model and column documentation on :8081.
+The DAG arrives paused, which is Airflow's default. Unpause it in the UI to watch it catch up
+from its start date, or drive a backfill yourself with `make airflow-backfill`.
 
-To convince yourself re-running is safe, run a backfill twice and compare the counts:
+## 1. Extract & load (Python)
+
+`pipelines/extract.py`, `pipelines/load.py`
+
+One run loads **one logical date**. A run for logical date *D* loads weather for
+*D − ARCHIVE_LAG_DAYS* (5 by default), because the archive endpoint trails real time by a few
+days; that mapping lives in `target_date_for()` and nowhere else. `make backfill
+BACKFILL_DAYS=30` loads a range.
+
+**Re-running a date does not duplicate rows.** The mechanism is **delete-then-insert on the
+run's date, inside one transaction**: the run owns exactly one weather date, so it deletes that
+date's rows and re-inserts them, leaving every other date untouched. Chosen over upsert because
+the run's unit of work *is* the partition — it needs no conflict target, it self-heals if the
+API changes its mind about a day, and a failed insert rolls back rather than leaving a
+half-written date.
+
+**Raw stays raw.** `raw.weather_daily` stores the API's `daily` fields and response metadata as
+verbatim JSON. Nothing is renamed, cast or converted before it lands. Columns describing our own
+processing are prefixed with `_` (`_batch_id`, `_extracted_at`, `_loaded_at`).
+
+**Timeouts and retries.** Every HTTP call carries a timeout (`REQUEST_TIMEOUT_SECONDS`, default
+30s) and retries with exponential backoff on 429 and 5xx via urllib3. Airflow retries the task
+twice on top of that.
+
+## 2. Transform (dbt)
+
+`dbt/weather/`
+
+* **Source**: `raw.weather_daily`, declared in `models/sources.yml` with freshness thresholds
+  and a description for every column.
+* **Staging**: `stg_weather_daily` (view) parses the JSON payload into typed, renamed columns.
+  It is the only model that knows the API's field names, so an upstream rename is a one-file
+  change. A view because it is a thin cast layer with nothing to gain from materialising.
+* **Marts** (tables): `mart_city_weather_daily`, the daily report per city enriched with a
+  7-day rolling mean and the day-over-day change; and `mart_city_weather_summary`, one row per
+  city over the whole window — the table a non-technical colleague would read first.
+
+**29 schema tests** covering keys, nulls and allowed values: `unique` and `not_null` on the
+grain key `city_id|weather_date`, `not_null` on every measurement, `accepted_values` on
+`city_id` and `country_code`, and a `relationships` test from the mart back to staging. The
+`unique` test on the grain is the one that matters — it is what goes red if the load ever stops
+being idempotent.
+
+`make dbt-docs` serves model and column documentation on :8081.
+
+## 3. Orchestrate (Airflow)
+
+`dags/weather_pipeline.py`
+
+One DAG, `extract → load → dbt run → dbt test`, scheduled `@daily`. Every task is a thin
+wrapper around a function in `pipelines/`, so the notebook and the DAG cannot drift apart.
+
+* Driven by the **logical date** — the task signature takes `logical_date` and passes it to
+  `target_date_for()`. Nothing reads "today", so `airflow backfill` replays cleanly.
+* `catchup=True` so a backfill covers the range; `max_active_runs=1` so runs serialise on the
+  shared warehouse.
+* Retries: 2 with a 2-minute delay, and a 30-second HTTP timeout underneath.
+* Idempotent on rerun: extract overwrites its own date-named landing file, load replaces that
+  date's rows, dbt rebuilds the models in full.
+
+## 4. Walk through (notebook)
+
+`notebooks/walkthrough.ipynb`, committed with outputs.
+
+It imports `pipelines` and calls the same functions the DAG calls — no logic is re-implemented.
+Each stage is followed by evidence: row counts, sample rows, and the full `dbt run` / `dbt test`
+output. Section 3 loads the same date twice and prints the counts either side. Section 6 inserts
+a duplicate row on purpose so you can watch the grain test fail, then repairs it and watches it
+pass. Section 7 queries the mart. Section 8 runs the real DAG end to end with
+`airflow dags test`.
+
+## Verifying
+
+| Command | What it proves |
+|---|---|
+| `make reproduce` | the whole pipeline runs; the notebook re-executes top to bottom |
+| `make dag-test DATE=2026-09-08` | Airflow executes the real DAG for one logical date |
+| `make backfill BACKFILL_DAYS=30` | 30 logical dates load through the CLI |
+| `make dbt-run` / `make dbt-test` | 3 models build, 29 tests pass |
+| `make dbt-docs` | model and column documentation on :8081 |
+
+Re-run safety in one line — run it twice, the counts don't move:
 
 ```bash
 make backfill BACKFILL_DAYS=3 && make backfill BACKFILL_DAYS=3
 ```
 
-Section 3 of the notebook does this with the counts printed either side, and section 6 inserts
-a duplicate row so you can watch the grain test fail and then pass again after a reload.
-
-## What's where
+## Layout
 
 ```
 pipelines/            the pipeline itself
   config.py           cities, paths and knobs, all overridable by env vars
   extract.py          Open-Meteo -> landed JSON, one logical date per run
   load.py             delete-then-insert into raw.weather_daily
-  warehouse.py        DuckDB connection and the raw DDL
-  dbt_runner.py       runs dbt in-process, returns a result object
+  warehouse.py        warehouse connection and the raw DDL
+  dbt_runner.py       runs dbt in-process, returns a typed result
   cli.py              python -m pipelines.cli extract|load|run|backfill|dbt-run|dbt-test
 dags/                 weather_pipeline.py, the one DAG
 dbt/weather/          source, staging model, two marts, tests and docs
@@ -96,30 +152,15 @@ scripts/              reproduce.sh, run_notebook.py, bootstrap_local.sh
 data/                 landing/ for raw JSON, warehouse/ for the DuckDB file (both gitignored)
 ```
 
-## A few decisions worth explaining
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the data flow, the grain, the idempotency mechanism
+and the trade-offs behind each choice. [NOTES.md](NOTES.md) covers time spent, known gaps and
+AI usage.
 
-**One run owns one logical date.** A run for date D loads weather for D minus
-`ARCHIVE_LAG_DAYS` (5 by default), because the archive endpoint trails real time by a few
-days. That mapping lives in `target_date_for()` and nowhere else, so the DAG, the CLI and the
-notebook can't disagree about which day a run is responsible for.
+## One deviation worth stating up front
 
-**Loading is delete-then-insert on that date**, in one transaction. Re-run it however you like
-(retry, by hand, backfill) and it deletes that date's rows and puts them back, leaving
-everything else alone. The `unique` test on `city_id|weather_date` is the alarm if that ever
-stops being true.
-
-**Raw stays raw.** `raw.weather_daily` keeps the API's `daily` fields and the response
-metadata as JSON, exactly as they arrived. Only `stg_weather_daily` knows those field names,
-so if Open-Meteo renames something it's a one-file change. Anything we add about our own
-processing is prefixed with `_`.
-
-**The warehouse is DuckDB**, a single file in `data/warehouse/`. No database service to wait
-on, which is why the notebook runs the same on a laptop, in the container and in CI. The SQL
-and the load pattern move to Postgres without much thought if this ever needed to.
-
-**The versions are pinned hard**, FastAPI and Starlette included. Airflow 3.0.4 fails every
-task start with a 422 if pip resolves a newer FastAPI than it expects, and that is not a fun
-afternoon. There's a comment at the top of `requirements.txt` saying so.
-
-Configuration lives in `.env` (copy `.env.example`). Paths default to repo-relative locations
-locally and are set to their container paths by `docker-compose.yml`.
+**The warehouse is DuckDB, not Postgres.** It is a single file under `data/warehouse/`, which
+means no database service in the critical path and a notebook that behaves identically on a
+laptop, in the container and in CI. The cost is DuckDB's single-writer rule, and the SQL and the
+delete-then-insert load pattern are already what you would write against Postgres. Moving over
+is a profile change plus swapping the JSON accessors in the staging model. ARCHITECTURE.md spells
+out exactly what would change.
