@@ -2,7 +2,7 @@
 
 ## Time spent
 
-About four hours:
+About eight hours:
 
 * ~35 min getting a working environment (see below)
 * ~60 min on the `pipelines` package: extract, load, warehouse, dbt runner, CLI
